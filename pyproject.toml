@@ -1,0 +1,40 @@
+[project]
+name = "cloudnode"
+version = "2024.09.0"
+authors = [
+    { name="Starlight", email="david@starlight.ai" },
+]
+maintainers = [
+    { name="Starlight", email="david@starlight.ai" },
+]
+description = "cloudnode is for building apps on home servers."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+keywords = ["cloudnode", "infrastructure", "engineering", "search", "home", "machine learning"]
+
+dependencies = [
+    "python-magic",
+    "dateparser",
+    "pyyaml",
+    "elasticsearch",
+    "elasticsearch-dsl",
+    "docker",
+]
+
+[project.urls]
+Homepage = "https://github.com/markelwin/CloudNode"
+Repository = "https://github.com/markelwin/CloudNode.git"
+Issues = "https://github.com/markelwin/CloudNode/issues"
+
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

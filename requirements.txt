@@ -1,0 +1,14 @@
+
+
+# filesystem i/o
+python-magic
+dateparser
+pyyaml
+
+# elasticsearch
+elasticsearch
+elasticsearch-dsl
+
+
+# for services
+docker
