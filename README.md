@@ -53,7 +53,7 @@ class WebPage(SwiftData):
     url: sd.string()                  # an exact string; facilitating exact matches only
     domain: sd.string()
     text: sd.string(analyze=True)     # a body of text; tokenized, analyzed and searchable
-    html: sd.string(dont_index=True)  # a string stored in the engine but intended for search
+    html: sd.string(dont_index=True)  # a string stored in the engine but not intended for search
     labels: sd.string(list=True)      # a list of exact strings; matching one or all is possible
     now: sd.timestamp()               # a timestamp; searchable using windows of time
     geo: sd.geopoint(list=True)       # a list of gps defined spots; searchable via radius
