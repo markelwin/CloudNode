@@ -5,6 +5,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+
+
 class ProfilerLogger(object):
     """ProfilerLogger is an easy way to globally monitor operations for performance issues as a context manager."""
 

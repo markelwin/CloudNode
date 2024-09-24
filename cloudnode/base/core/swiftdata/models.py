@@ -81,6 +81,28 @@ class VECTOR(str):
         return value
 
 
+class INTEGER(str):
+    description = "INTEGER is an integer."""
+
+    @staticmethod
+    def upon_get(s):
+        if s is None: return None
+        return json.loads(s)
+
+    @staticmethod
+    def upon_set(value):
+        if value is None: return None
+        return json.dumps(value)
+
+
+class FLOAT(INTEGER):
+    description = "FLOAT is an double-precision float."""
+
+
+class BOOLEAN(INTEGER):
+    description = "BOOLEAN is an True/False states as such."""
+
+
 def derived_field(swift_cls, es_field_cls_name, **parameters):
     md5 = hashlib.md5(json.dumps(parameters).encode()).hexdigest()
     derived = type(f"{swift_cls.__name__}_{md5}", (swift_cls,), {})
@@ -109,6 +131,17 @@ def GENERIC_GEOPOINT(list=False, dont_index=False):
 def GENERIC_VECTOR(n_dims, dont_index=False):
     return derived_field(VECTOR, "DenseVector", n_dims=n_dims, dont_index=dont_index)
 
+def GENERIC_INTEGER(list=False, dont_index=False):
+    return derived_field(INTEGER, "Integer", is_list=list, dont_index=dont_index)
+
+
+def GENERIC_FLOAT(list=False, dont_index=False):
+    return derived_field(FLOAT, "Float", is_list=list, dont_index=dont_index)
+
+
+def GENERIC_BOOLEAN(list=False, dont_index=False):
+    return derived_field(BOOLEAN, "Boolean", is_list=list, dont_index=dont_index)
+
 
 class sd(object):
     string = GENERIC_STRING
@@ -116,6 +149,10 @@ class sd(object):
     flags = GENERIC_FLAGS
     geopoint = GENERIC_GEOPOINT
     vector = GENERIC_VECTOR
+    integer = GENERIC_INTEGER
+    float = GENERIC_FLOAT
+    boolean = GENERIC_BOOLEAN
+
 
 descriptions_of_sd = {
     GENERIC_STRING: TEXT,
@@ -123,7 +160,7 @@ descriptions_of_sd = {
     GENERIC_FLAGS: FLAGS,
     GENERIC_GEOPOINT: GEOPOINT,
     GENERIC_VECTOR: VECTOR,
+    GENERIC_INTEGER: INTEGER,
+    GENERIC_FLOAT: FLOAT,
+    GENERIC_BOOLEAN: BOOLEAN,
 }
-
-# [Integer, Float, Boolean], and nested
-

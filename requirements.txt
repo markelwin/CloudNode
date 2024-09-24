@@ -12,3 +12,7 @@ elasticsearch-dsl
 
 # for services
 docker
+flask
+flask-RESTful
+flask_cors
+
