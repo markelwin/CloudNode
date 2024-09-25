@@ -20,7 +20,7 @@ class MyAppFunctions:
                   "During the French and Indian War, Washington was lauded as a hero after emerging unscathed from an ambush attack near Fort Duquesne in Pennsylvania. According to several accounts, Washington had two horses shot out from under him, and four bullets pierced his coat.",
                   "At the time of George Washington’s death, Mount Vernon had a population of some 318 slaves (123 belonged to him and 153 were dower slaves from Martha Washington’s first husband’s estate), according to anthropologists at Mount Vernon. Before his death, Washington ordered his slaves be freed after Martha’s death. When he died, she freed them, after family members warned her they could easily overthrow her. Sources offer differing insight into Washington’s behavior as a slave owner.",
                   "That cherry tree myth? Totally false. The myth was invented by one of Washington’s first biographers, Mason Locke Weems, in The Life and Memorable Actions of Washington. The tall tale first appeared in the book’s fifth edition, published in 1806. Its purpose was to paint Washington as a role model for young Americans, proving that the man’s public greatness was due to his private virtues (honesty, courage, etc.). In 1836, the story was recast as a children’s story, and that’s how rumors spread."]
-        return random.choices(quotes, k=n_quotes)
+        return random.sample(quotes, n_quotes)
 
 
 class MyHtmlFunctions:
@@ -67,6 +67,10 @@ app_functions = [
 html_functions = [
     dict(source="cloudnode.app:MyHtmlFunctions.front_page"),
 ]
+
+# Examples for low-level debugging
+# curl -X GET http://127.0.0.1:80/functions/MyHtmlFunctions.front_page
+# curl -X POST --header "Content-Type: application/json" --data '{"n_quotes": 3}' http://127.0.0.1:5004/functions/MyAppFunctions.george_washington_readers_digest
 
 
 # Configuration of Service

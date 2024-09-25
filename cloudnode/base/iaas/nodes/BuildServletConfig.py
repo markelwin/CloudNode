@@ -90,7 +90,7 @@ class BuildServletConfig(object):
             raise RuntimeError(f"endpoints stub={nf_filename_endpoints} does not exist: server build malfunction?")
         endpoints_by_function = json.load(FileSystem.easy_download(nf_filename_endpoints))
         if function_name not in endpoints_by_function:
-            raise KeyError(f"endpoint for function={function_name} not found among functionn={endpoints_by_function.keys()}")
+            raise KeyError(f"endpoint for function={function_name} not found among function={endpoints_by_function.keys()}")
         endpoints = endpoints_by_function[function_name]
         if servlet_name is not None:
             if servlet_name not in endpoints:

@@ -1,4 +1,4 @@
-# from cloudnode.base.iaas.client import GenericCloudNodeClient
+# from cloudnode.base.iaas.client import AetherClient
 import threading
 import time
 
@@ -27,6 +27,6 @@ class EasyCron(object):
                 # if previous thread is still running, it will continue to run, but alert the system.
                 logger.warning(f"CRON has still running thread: last_request_s={self.last_request_s}: {self.endpoint} data={self.data}")
             logger.info(f"CRON at {now} every_s={self.every_s}: {self.endpoint} data={self.data}")
-            self.thread = threading.Thread(target=GenericCloudNodeClient.request, args=(self.endpoint, self.data, None),
+            self.thread = threading.Thread(target=AetherClient.request, args=(self.endpoint, self.data, None),
                                            name=f"cron={self.endpoint}_ts={now}", daemon=True)
             self.thread.start()

@@ -22,7 +22,7 @@ class LogLine(SwiftData):
     level: sd.string()
     timestamp: sd.timestamp()
     module: sd.string()
-    line: sd.integer()  # FIXME: integer; add name?
+    line: sd.integer()
     message: sd.string(analyze=True)
 
 
@@ -42,9 +42,9 @@ class CloudNodeLoggerHandler(logging.StreamHandler):
     def handle_every_s_if_necessary(self):
         if self.last_handle_every_s is None or time.time() - self.last_handle_every_s > CloudNodeLoggerHandler.write_to_disk_every_s:
             failed = []
-            for args in self.buffer:
-                try: LogLine.new(**args).save(index)
-                except: failed.append(args)
+            # for args in self.buffer:
+            #     try: LogLine.new(**args).save(index)
+            #     except: failed.append(args)
             if len(failed) != 0: logger.warning(f"cloudnodelogger failed to save records n={len(failed)}")
             self.buffer = failed
             self.last_handle_every_s = time.time()

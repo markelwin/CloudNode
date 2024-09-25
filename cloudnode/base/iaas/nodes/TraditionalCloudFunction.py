@@ -1,5 +1,6 @@
 from cloudnode.base.iaas.for_functions import parse_function_config_into_source
 from cloudnode.base.iaas.CloudNodeLogger import CloudNodeLogger
+from cloudnode.base.iaas.aether import AetherClient
 from cloudnode.base.core.lightweight_utilities.dicts import dictionary_parser
 from cloudnode.base.core.lightweight_utilities.sysops import dynamic_variable_loader
 from http import HTTPStatus
@@ -133,11 +134,14 @@ class TraditionalCloudFunction:
                     if request.method == "GET": kwargs = dict(request.args)
                     elif request.method == "POST": kwargs = request.get_json()
                     else: raise NotImplemented(f"Request method {request.method} unknown, must be GET or POST.")
-                    # checking whether the request is for one of the meta instructions instead
-                    response = available_meta_operations_and_python_function(kwargs)
-                    p.add(dict(bytes=response.content_length))
-                    # FIXME: do the change to upload the logs and return with the errors stub.
-                    return response
+                    # check whether this request was sent from AetherClient and should be unwrapped
+                    is_ae = AetherClient.is_ae_data(kwargs)
+                    if is_ae: uid, pid, tid, kwargs = AetherClient.unwrap_from_cloudnode_kwargs(kwargs)
+                    r = available_meta_operations_and_python_function(kwargs)
+                    if is_ae: r = AetherClient.wrap_to_cloudnode_response(uid, pid, tid, r)
+                    p.add(dict(bytes=r.content_length))
+                    return r
         return server_entrypoint_suitable_for_profiling_and_logging
 
 # FIXME: profiler.swift().add(bytes=sd.integer()).as_rates() <== add name automatically;
+# FIXME: do the change to upload the logs and return with the errors stub.
