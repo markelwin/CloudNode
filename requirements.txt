@@ -8,7 +8,7 @@ pyyaml
 # elasticsearch
 elasticsearch
 elasticsearch-dsl
-
+pandas
 
 # for services
 docker
@@ -16,3 +16,4 @@ flask
 flask-RESTful
 flask_cors
 requests
+shiny

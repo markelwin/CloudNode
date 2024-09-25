@@ -7,3 +7,4 @@ from cloudnode.config import RuntimeConfig
 from cloudnode.base.iaas.nodes.Infrastructure import Infrastructure
 from cloudnode.base.iaas.client import GenericCloudClient, ReturnType
 from cloudnode.base.iaas.aether import AetherClient
+from cloudnode.base.iaas.nodes.thirdparty.ShinyServlet import ServletShiny

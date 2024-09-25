@@ -1,9 +1,13 @@
-from cloudnode.base.iaas.nodes.Infrastructure import Infrastructure
+from cloudnode import Infrastructure
 import random
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+########################################################################################################################
+# five-minute demo: as simply as writing a Python function you can host a home server exactly the same
+########################################################################################################################
 
 
 class MyAppFunctions:
@@ -30,7 +34,7 @@ class MyHtmlFunctions:
     # purpose here to not only to reduce engineering to single-source implementations but to re-envision hosts and APIs
     # as router-layers which expose already-code functioning occurring within the system processor environment.
 
-    args = dict(as_type="HTTP")
+    args = dict(as_type="HTTP")  # args specifies default_args for all methods of the class; here, that they are HTTPs
 
     @staticmethod
     def front_page():
@@ -41,9 +45,9 @@ class MyHtmlFunctions:
           <title>Starlight J.A.R.V.I.S.</title>
         </head>
         <body>
-        
+
         <h1> Good morning. </h1>
-        <p> 
+        <p>
         JARVIS: Allow me to introduce myself. I am JARVIS, a virtual artificial intellige-- <br/>
         BERNAT: Yeah. Yeah. Yeah. Okay. Let us not get ahead of ourselves here. <br/>
         JARVIS: Here is a fact about George Washington?  <br/>
@@ -54,35 +58,34 @@ class MyHtmlFunctions:
         </p>
         </body>
         </html>""".replace("[QUOTE_TO_REPLACE]", MyAppFunctions.george_washington_readers_digest(n_quotes=1)[0])
+        # Notice that we can call MyAppFunctions.george_washington_readers_digest directly, or through its API.
 
-# functions are injected by referencing their module.class:function along with other runtime configuration variables
+
+# functions are injected by referencing their module:class.function along with other runtime configuration variables
 # (such as concurrency and ram limitations); the reason these are referenced by string is so no import requirements
 # are made between the function sources and the infrastructure construction and launch. The Infrastructure uses this
 # configuration list to load the necessary external modules and construct a REST API; which means these individual
 # configuration lines can be passed to any other host machine to also launch which has access to the same repository.
 app_functions = [
-    dict(source="cloudnode.app:MyAppFunctions.george_washington_readers_digest"),
+    dict(source="demo_easyapi:MyAppFunctions.george_washington_readers_digest"),
+    # dict(source="demo_easyapi:MyAppFunctions"),  # not specifying a function will import all functions of the class
 ]
 
 html_functions = [
-    dict(source="cloudnode.app:MyHtmlFunctions.front_page"),
+    dict(source="demo_easyapi:MyHtmlFunctions.front_page"),
 ]
 
-# Examples for low-level debugging
-# curl -X GET http://127.0.0.1:80/functions/MyHtmlFunctions.front_page
-# curl -X POST --header "Content-Type: application/json" --data '{"n_quotes": 3}' http://127.0.0.1:5004/functions/MyAppFunctions.george_washington_readers_digest
 
-
+########################################################################################################################
+# the infrastructure code itself is only a few lines
+########################################################################################################################
 # Configuration of Service
 app_hostport = "0.0.0.0:5004"
 html_hostport = "0.0.0.0:80"
 
 
 class InfrastructureConfig:
-    applet = "early"
-    username = "davidbernat"
-
-# FIXME: add swift explicitly here.
+    username = "myusername"  # this is used for future iam services not yet implemented
 
 
 if __name__ == "__main__":
@@ -93,3 +96,27 @@ if __name__ == "__main__":
     Infrastructure.servlet(app_hostport, app_functions)
     Infrastructure.servlet(html_hostport, html_functions)
     Infrastructure.blocking_start()
+
+########################################################################################################################
+# three identical methods for accessing the new apis
+########################################################################################################################
+# # 1. Examples for CURL low-level debugging (the GET methods can be accessed from a browser url line, as well)
+# curl -X GET http://127.0.0.1:80/functions/MyHtmlFunctions.front_page
+# curl -X POST --header "Content-Type: application/json" --data '{"n_quotes": 3}' http://127.0.0.1:5004/functions/MyAppFunctions.george_washington_readers_digest
+# # This method is included on all Infrastructure to shut down the server remotely (notice the port 4137)
+# curl -X POST --header "Content-Type: application/json" --data '{}' http://127.0.0.1:4137/functions/Infrastructure.end
+
+# # 2. The GenericCloudClient performs typical GET/POST requests, error checking, and deserializes response data.
+# from cloudnode import GenericCloudClient, ReturnType
+# r = GenericCloudClient.request("http://127.0.0.1:5004/functions/MyAppFunctions.george_washington_readers_digest",
+#                                d=dict(n_quotes=3), method="POST", rtype=ReturnType.JSON)
+# if r.success:
+#     for quote in r.data: print(quote)
+# GenericCloudClient.request("http://127.0.0.1:4137/functions/Infrastructure.end", method="POST")
+
+# # 3. The AetherClient automatically locates endpoints, and other advanced features described elsewhere.
+# from cloudnode import AetherClient
+# r = AetherClient.request("ae://MyAppFunctions.george_washington_readers_digest", d=dict(n_quotes=3))
+# if r.success:
+#     for quote in r.data: print(quote)
+# r = AetherClient.request("ae://Infrastructure.end")

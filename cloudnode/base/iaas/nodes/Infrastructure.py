@@ -55,7 +55,7 @@ class BuildServlet:
                     logger.info(f"Dynamically loading node function(s) defined by: {item}")
                     cls = dynamic_variable_loader(module, cls_name)
                     if item_method is not None: methods = [item_method]
-                    else: methods = [name for name, _ in inspect.getmembers(cls, predicate=inspect.ismethod)
+                    else: methods = [name for name, _ in inspect.getmembers(cls, predicate=inspect.isfunction)
                                      if not name.startswith("_")]
                     # check whether the cls has args (apply to all) and args_for (apply by name)
                     args_default = getattr(cls, "args") if hasattr(cls, "args") else dict()
@@ -128,6 +128,13 @@ class Infrastructure(object):
             .add_functions(functions).integrity_confirmed()
         servlet = BuildServlet.build(config)  # servlet has an updated config
         Infrastructure.servlets[config.servlet_name] = servlet
+        return servlet
+
+    @staticmethod
+    def thirdparty(hostport, servlet, servlet_name=None):
+        logger.info(f"Infrastructure adding thirdparty app={servlet.provider} hostport={hostport}")
+        if servlet_name is None: servlet_name = hostport
+        Infrastructure.servlets[servlet_name] = servlet(hostport)
         return servlet
 
     @staticmethod

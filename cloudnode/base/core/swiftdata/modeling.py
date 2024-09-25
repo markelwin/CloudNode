@@ -69,7 +69,7 @@ class SwiftData:
         if data is None: data = dict()
         values = {f.name: data[f.name] if f.name in data else None for f in dataclasses.fields(cls)}
         if id is None and "id" not in data: values["id"] = uuid.uuid4().hex.lower()
-        if id is not None: values["id"] = id.lower()  # if id or ts are set these values will override any in data
+        if id is not None: values["id"] = str(id).lower()  # if id or ts are set these values will override any in data
         if ts is None and "ts" not in data: values["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if ts is not None: values["ts"] = ts
         # because constructors do not call setters unless explicit within the init we will explicitly use setters
