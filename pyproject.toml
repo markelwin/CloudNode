@@ -1,6 +1,6 @@
 [project]
 name = "cloudnode"
-version = "2024.09.0"
+version = "2024.09.1"
 authors = [
     { name="Starlight", email="david@starlight.ai" },
 ]
@@ -24,7 +24,13 @@ dependencies = [
     "pyyaml",
     "elasticsearch",
     "elasticsearch-dsl",
+    "pandas",
     "docker",
+    "flask",
+    "flask-RESTful",
+    "flask_cors",
+    "requests",
+    "shiny",
 ]
 
 [project.urls]
