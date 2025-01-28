@@ -1,6 +1,6 @@
 ## cloudnode is for building apps on home servers.
 
-cloudnode is built for hosting small single-node servers on home systems in the open-source, and for
+[cloudnode](README.CloudNode.md) is built for hosting small single-node servers on home systems in the open-source, and for
 engineering containerized apps on top of its core services, including ingress, search, storage, code 
 bases, cloud functions, apis, and system logging. These containerized apps can be distributed as any others.
 
