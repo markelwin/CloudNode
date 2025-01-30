@@ -31,6 +31,8 @@ New opinion unlocked: `Installation Speedruns` should be a subcategory of deep l
   - Fireship: [100+ Linux Things you Need to Know](https://www.youtube.com/watch?v=LKCVKw9CzFo)
   - Fireship: [CPU vs GPU vs TPU vs DPU vs QPU](https://www.youtube.com/watch?v=r5NQecwZs1A)
   - Bill Wurtz: [history of the entire world, i guess](https://www.youtube.com/watch?v=xuCn8ux2gbs)
+- even more useful? getting back to that log file and working that code
+
 
 ### Installation: Ubuntu via USB
 1. Installing the Ubuntu OS via USB stick has nothing out of the ordinary, except for a few configurations, and we are
@@ -238,6 +240,46 @@ happens is the local SMTP relayed any `jarvis.home` mail through its network unt
 reached; then the `/etc/postfix/virtual` file is searched to find a map from the complete email address to a machine username to 
 write the message to the appropriate user `~/Maildir`. It is fundamentally that simple no matter how many machines in your network.
 
+### Installation: gitLab, and configuring programmers on your local IP network
+1. Installing `gitLab` using the `apt` package manager as a tool rather than a containerized service as an application moves
+the system of code management closer to the metal of the operating system, which is more natural, and also relatively easy to install.
+   - Installation of Enterprise Edition is relatively straightforward, plus bugs in bad documentation.
+   - First, add the keyring for `apt` by preparing these steps in the manual install: https://packages.gitlab.com/gitlab/gitlab-ee/install#manual-deb
+   - Second, select a root user password, which must be eight characters or else the installation may silently error.
+   - Third, install Enterprise Edition, and remember to use `https` for the URL: `sudo GITLAB_ROOT_PASSWORD="<password>" EXTERNAL_URL="https://10.0.0.88" apt install gitlab-ee`
+   - Confirm the service is running `sudo gitlab-ctl status` and navigate to a browser to login with its admin user `root`.
+   - BUG: we found that the `/install#bash` scripts for the first step failed to correctly add the keyring for `apt`.  
+   - BUG: the installation may throw a `permission denied` on the keyring `.gpg` file. In this instance I found I needed to change
+the permissions to `chmod 777`; which simply provides all users the opportunity to install via `apt`, harboring no security risk.
+   - BUG: installation requires SSL, so doublecheck that the `ufw` firewalls are configured to allow `https`. Moreover, I found that
+on occasion, the LetsEncrypt/ACME SSL failed to establish a connection during installation, in part because the `github.rb` configuration
+defaults did not match the documentation. In this case, you need to manually add these two lines into its `letsencrypt` section. 
+This information is a composite of information here: https://docs.gitlab.com/omnibus/settings/ssl/#use-an-acme-server-other-than-lets-encrypt 
+then after any update to the configuration file you must reprocess using `sudo gitlab-ctl reconfigure`.
+   ```
+   letsencrypt['acme_staging_endpoint'] = 'https://acme-staging-v02.api.letsencrypt.org/directory'
+   letsencrypt['acme_production_endpoint'] = 'https://acme-v02.api.letsencrypt.org/directory'
+   ```
+2. Login from a browser as `root` to establish root account and update specific settings, and use as you normally would
+GitHub. Remember that because this machine is not connected to an outbound DNS service on the global, public Internet, that
+all user email addresses and URLs must be local network, c.f. `user@jarvis.home`. There are other actions the administrator
+account should take in the "Admin Area => Settings" area to create a security protection should your machine ever become
+accessible to the global public Internet: 
+      - In "Sign-up restrictions", remove the check on "Sign-up enabled" then whitelist your email address domain (e.g. `jarvis.home`).
+This will require the administrator account to create all new users through either the dashboard or its API.
+3. Use the admin to create new users for your local network and cloudnode users, but not server and postmaster (i.e., any programmers).
+   - Once the administrator creates your account you will receive an email in your `jarvis.home` account; and in the text body
+of that email is a URL inside an HTML tag that contains its confirmation link with its password token. Copy and paste that into
+the browser so that you are asked to provide your password; then login to the dashboard. 
+   - Familiarize yourself with the diverse platform of tools in gitLab: it rivals and exceeds GitHub, and GitHub started as a direct
+clone of gitLab much as you have here.
+   - Create a gitLab token for `git` for the command line in "User settings => Access Tokens".
+   - Further Administrator-level API endpoints allow total operation of the dashboard from the command line. 
+   - NOTE: https://docs.gitlab.com/omnibus/settings/dns
+   - NOTE: https://docs.gitlab.com/ee/api/rest/
+   - NOTE: https://docs.gitlab.com/ee/api/users.html
+   - NOTE: https://docs.gitlab.com/ee/api/users.html#user-creation  # create new users
+   - NOTE: https://docs.gitlab.com/ee/gitlab-basics/start-using-git.html
 
 
 ### Where are the other components?
