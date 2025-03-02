@@ -1,6 +1,5 @@
 from cloudnode import Infrastructure, SwiftData, sd, ServletShiny
 import pandas as pd
-import dataclasses
 import random
 import shiny
 
@@ -48,7 +47,6 @@ class SearchServlet(ServletShiny):
             r = df[df['quote'].str.contains(query, case=False)]
             return "\n\n".join(list(r["quote"].values))
 
-@dataclasses.dataclass
 class Quotation(SwiftData):
     speaker: sd.string()
     quote: sd.string(analyze=True)

@@ -6,10 +6,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# The CloudNodeLogger is a simple logger designed to buffer and write to disk each log statement, in addition to pushing
+# The NodeLogger is a simple logger designed to buffer and write to disk each log statement, in addition to pushing
 # statements to standard-output; the purpose of this logger is to wrap TraditionalCloudFunctions so that users may write
 # their functions with standard logging capabilities, and the IAAS framework elevates these to cloud stage logging here.
-# The CloudNodeLogger may accept an optional runtime state upon creation to describe the context of the CloudFunction,
+# The NodeLogger may accept an optional runtime state upon creation to describe the context of the CloudFunction,
 # i.e., defining a process id, or any other information which may be useful for tracing Functions across one another.
 
 index = "cloudnode.cloudnodelogger"  # FIXME: This should be system defined.
@@ -26,12 +26,12 @@ class LogLine(SwiftData):
     message: sd.string(analyze=True)
 
 
-class CloudNodeLoggerHandler(logging.StreamHandler):
+class NodeLoggerHandler(logging.StreamHandler):
 
     write_to_disk_every_s = 60
 
     def __init__(self, pid=None):
-        super(CloudNodeLoggerHandler, self).__init__()
+        super(NodeLoggerHandler, self).__init__()
         self.pid = pid
         _formatter = logging.Formatter(f"%(levelname)s:pid={self.pid}:%(name)s:%(message)s")
         self.setFormatter(_formatter)
@@ -40,7 +40,7 @@ class CloudNodeLoggerHandler(logging.StreamHandler):
         self.last_handle_every_s = None
 
     def handle_every_s_if_necessary(self):
-        if self.last_handle_every_s is None or time.time() - self.last_handle_every_s > CloudNodeLoggerHandler.write_to_disk_every_s:
+        if self.last_handle_every_s is None or time.time() - self.last_handle_every_s > NodeLoggerHandler.write_to_disk_every_s:
             failed = []
             # for args in self.buffer:
             #     try: LogLine.new(**args).save(index)
@@ -52,7 +52,7 @@ class CloudNodeLoggerHandler(logging.StreamHandler):
     def emit(self, record):
         """This is the standard method for what to do with a new inbound log request."""
         try:
-            super(CloudNodeLoggerHandler, self).emit(record)  # call the default logger method (i.e., to stdout)
+            super(NodeLoggerHandler, self).emit(record)  # call the default logger method (i.e., to stdout)
             args = dict(level=record.levelname, timestamp=record.created, logger=record.name,
                         module=record.module, line=record.lineno, message=record.msg, pid=self.pid)
             self.buffer.append(args)
@@ -61,13 +61,13 @@ class CloudNodeLoggerHandler(logging.StreamHandler):
         except: self.handleError(record)  # if an error propagate its exceptions using the standard default methods
 
 
-class CloudNodeLogger(logging.RootLogger):
+class NodeLogger(logging.RootLogger):
 
     def __init__(self, pid=None):
-        super(CloudNodeLogger, self).__init__(logging.getLogger().level)
+        super(NodeLogger, self).__init__(logging.getLogger().level)
         self.original_handlers = []
         self.pid = pid
-        self.cloud_handler = CloudNodeLoggerHandler(pid=pid)
+        self.cloud_handler = NodeLoggerHandler(pid=pid)
 
     def __enter__(self):  # get the handlers attached to the original root logger; reattach after .exit()
         _logger = logging.getLogger()
@@ -84,7 +84,7 @@ class CloudNodeLogger(logging.RootLogger):
 
 
 # state = dict(node="FunctionName", pid="asdfg", tid="fgaer", uuid="_MACHINE", fid="aewrt")
-# with CloudNodeLogger(pid=state["pid") as logger:
+# with NodeLogger(pid=state["pid") as logger:
 #     for i in range(30):
 #         logger.info(f"This message is at {2*i} seconds.")
 #         time.sleep(2)

@@ -12,18 +12,24 @@ class TIMESTAMP(str):
         return value.isoformat()
 
     @staticmethod
-    def upon_get(value):
+    def upon_get(value):  # str => dt
         if value is None: return None
-        dt = dateparser.parse(value)
-        return dt
+        try: return datetime.datetime.fromisoformat(value)  # much faster (5e-5 vs. 5e-3 for dateparse)
+        except: pass
+        return dateparser.parse(value)
 
     @staticmethod
-    def upon_set(value):
+    def upon_set(value):  # dt, str => isoformat
         if value is None: return None
-        if isinstance(value, datetime.datetime): value = value.isoformat()
-        elif isinstance(value, str): value = dateparser.parse(value).isoformat()
-        else: raise ValueError("unrecognized format not datetime or str")
-        return value
+        if isinstance(value, datetime.datetime): return value.isoformat()
+        if isinstance(value, str):
+            if len(value.strip()) == 0: return None
+            try: return datetime.datetime.fromisoformat(value).isoformat()  # much faster
+            except: pass
+            value = dateparser.parse(value)
+            if value is None: return None
+            return value.isoformat()
+        raise ValueError("unrecognized format not datetime or str")
 
 
 class TEXT(str):
@@ -47,6 +53,22 @@ class FLAGS(str):
         return value
 
 
+class VECTOR(str):
+    description = "VECTOR is a vector of floats; e.g., an embedding vector"""
+
+    @staticmethod
+    def upon_get(s):
+        if s is None: return None
+        return json.loads(s)
+
+    @staticmethod
+    def upon_set(value):
+        if value is None: return None
+        if isinstance(value, (list, tuple)): value = json.dumps([float(s_or_f) for s_or_f in value])
+        else: raise ValueError("unrecognized format not list/tuple or comma separated str of floats")
+        return value
+
+
 class GEOPOINT(str):
     description = "GEOPOINT is a geospatial lat/lng or lat/lng/z in [lat, long], 'lat,lng' or similar formats."""
 
@@ -65,34 +87,18 @@ class GEOPOINT(str):
         return value
 
 
-class VECTOR(str):
-    description = "VECTOR is a vector of floats; e.g., an embedding vector"""
-
-    @staticmethod
-    def upon_get(s):
-        if s is None: return None
-        return json.loads(s)
-
-    @staticmethod
-    def upon_set(value):
-        if value is None: return None
-        if isinstance(value, (list, tuple)): value = json.dumps([float(s_or_f) for s_or_f in value])
-        else: raise ValueError("unrecognized format not list/tuple or comma separated str of floats")
-        return value
-
-
 class INTEGER(str):
     description = "INTEGER is an integer."""
 
     @staticmethod
     def upon_get(s):
         if s is None: return None
-        return json.loads(s)
+        return int(s)
 
     @staticmethod
     def upon_set(value):
         if value is None: return None
-        return json.dumps(value)
+        return str(value)
 
 
 class FLOAT(INTEGER):
@@ -104,7 +110,8 @@ class BOOLEAN(INTEGER):
 
 
 def derived_field(swift_cls, es_field_cls_name, **parameters):
-    md5 = hashlib.md5(json.dumps(parameters).encode()).hexdigest()
+    to_hash = json.dumps(parameters) + es_field_cls_name  # ensure es expects different classes for each field type
+    md5 = hashlib.md5(to_hash.encode()).hexdigest()
     derived = type(f"{swift_cls.__name__}_{md5}", (swift_cls,), {})
     derived.__es_parameters = parameters
     derived.__es_field_cls_name = es_field_cls_name

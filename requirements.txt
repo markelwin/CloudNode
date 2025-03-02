@@ -4,10 +4,13 @@
 python-magic
 dateparser
 pyyaml
+pillow_heif  # for .heif images
 
-# elasticsearch
-elasticsearch
-elasticsearch-dsl
+# for operating system
+psutil
+
+# meilisearch
+meilisearch
 pandas
 
 # for services
@@ -17,3 +20,4 @@ flask-RESTful
 flask_cors
 requests
 shiny
+urllib3

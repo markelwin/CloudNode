@@ -87,7 +87,8 @@ class BuildServlet:
         for b in self.node_builders: b.flask_route(self.flask_app)
         (host, port), uid = hostport.split(":"),  f"{protocol}{hostport}"
         if uid in Infrastructure.servlets: raise RuntimeError(f"servlet {uid} already running: {Infrastructure.servlets.keys()}")
-        self.thread = threading.Thread(target=self.flask_app.run, args=(host, int(port)), name=f"servlet={uid}", daemon=True)
+        kwargs = dict(host=host, port=int(port), threaded=True)
+        self.thread = threading.Thread(target=self.flask_app.run, kwargs=kwargs, name=f"servlet={uid}", daemon=True)
         self.thread.start()
 
         endpoints = {b.name: f"{protocol}{hostport}{b.route}" for b in self.node_builders}

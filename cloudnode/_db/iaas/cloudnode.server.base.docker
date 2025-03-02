@@ -1,0 +1,23 @@
+FROM python:3.10-slim
+
+MAINTAINER Starlight <david@starlight.ai>
+
+ENV PYTHON_VERSION 3.10
+ENV CONDA_ENVIRONMENT SERVER
+ENV CONDA_DIR /opt/conda
+
+#######################################################################################################################
+# gcc g++ git is required for several packages which interface through c/c++.
+# miniconda is the new package manager to keep PyTorch and NVIDIA
+# Efficiency: 'apt-get update' will cache; 'apt-get install' does not. So keep the commands separate.
+# Note: conda needs to be put in $PATH so we can use its command line interface
+#######################################################################################################################
+
+RUN apt-get update && apt-get -y upgrade
+RUN apt-get install -y --no-install-recommends bash wget git gcc g++ build-essential curl ca-certificates
+RUN rm -rf /var/lib/apt/lists/*
+
+# Pip install the requirements here, which are usually the base requirements from the start of a larger project.
+# Also pip install each time cloudnode.server.entry is compiled. Far fewer requirements will be updated each iteration.
+COPY requirements.txt .
+RUN pip install -r requirements.txt

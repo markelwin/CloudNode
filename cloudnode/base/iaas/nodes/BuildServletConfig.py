@@ -37,8 +37,8 @@ class BuildServletConfig(object):
 
     @staticmethod
     def empty_disk():
-        if os.path.exists(nf_filename_configs): FileSystem.easy_delete(nf_filename_configs)
-        if os.path.exists(nf_filename_endpoints): FileSystem.easy_delete(nf_filename_endpoints)
+        if FileSystem.easy_exists(nf_filename_configs): FileSystem.easy_delete(nf_filename_configs)
+        if FileSystem.easy_exists(nf_filename_endpoints): FileSystem.easy_delete(nf_filename_endpoints)
 
     def to_disk_configs_by_servlet(self):
         # NOTE: see note in endpoints_to_disk to understand the format of cf_configurations_filename

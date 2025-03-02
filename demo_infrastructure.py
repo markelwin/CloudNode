@@ -1,6 +1,5 @@
 from cloudnode import Infrastructure, SwiftData, sd
 import pandas as pd
-import dataclasses
 import random
 
 import logging
@@ -14,7 +13,6 @@ logger = logging.getLogger(__name__)
 # application we are only going to use SwiftData to use string.contains() to identify matching quotations, but the same
 # implementations of demo_swiftdata allows for the same backend query system to be built in just a few minutes more.
 
-@dataclasses.dataclass
 class Quotation(SwiftData):
     speaker: sd.string()
     quote: sd.string(analyze=True)
@@ -120,7 +118,6 @@ app_functions = [
 ]
 
 html_functions = [
-    # dict(source="cloudnode.app:MyHtmlFunctions.front_page"),
     dict(source="demo_infrastructure:MyHtmlFunctions"),
 ]
 

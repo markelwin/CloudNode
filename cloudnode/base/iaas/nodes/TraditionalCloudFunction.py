@@ -1,7 +1,8 @@
 from cloudnode.base.iaas.for_functions import parse_function_config_into_source
-from cloudnode.base.iaas.CloudNodeLogger import CloudNodeLogger
+from cloudnode.base.iaas.NodeLogger import NodeLogger
 from cloudnode.base.iaas.aether import AetherClient
 from cloudnode.base.core.lightweight_utilities.dicts import dictionary_parser
+from cloudnode.base.core.lightweight_utilities.wrangler import dictionary_wrangler
 from cloudnode.base.core.lightweight_utilities.sysops import dynamic_variable_loader
 from http import HTTPStatus
 import datetime
@@ -115,7 +116,7 @@ class TraditionalCloudFunction:
                     logger.info(f"Received METADATA request: returning {metadata}.")
                     return Response(response=json.dumps(metadata))
                 # Continue onward into the normal operating Cloud Function calls.
-                args_s = {k: f"{str(v)[:5000]}" for k, v in kwargs.items()}
+                args_s = {k: f"{str(v)[:500]}" for k, v in kwargs.items()}
                 logger.info(f"entering Function {self.name}: {args_s}")
                 results = self.function(**kwargs)
                 if self.do_json: results = json.dumps(results)
@@ -127,7 +128,7 @@ class TraditionalCloudFunction:
                 return Response(response=msg, status=status)
 
         def server_entrypoint_suitable_for_profiling_and_logging(request):
-            with CloudNodeLogger() as logger:  # switch to CloudNodeLogger from base local logger
+            with NodeLogger() as logger:  # switch to NodeLogger from base local logger
                 # s = profiler.swift(f"NODE_{self.name.upper()}").add(bytes=sd.integer()).as_rates()
                 with profiler.profile(f"NODE_{self.name.upper()}") as p:
                     # parsing request into function arguments

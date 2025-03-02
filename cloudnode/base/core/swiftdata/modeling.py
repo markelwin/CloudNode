@@ -1,10 +1,9 @@
-from cloudnode.base.core.elasticsearch.search import ElasticSearchDslClient, ElasticSearchServer, ElasticSearchClient
+from cloudnode.base.core.search.search import MeilisearchServer, MeilisearchClient, MeilisearchQueryHelper, SearchQueryHelper
 from cloudnode.base.core.lightweight_utilities.filesystem import FileSystem
 from cloudnode.base.core.lightweight_utilities.cloudnode import create_programmatic_directory
 from cloudnode.base.core.swiftdata.models import sd, descriptions_of_sd
 from cloudnode.config import RuntimeConfig
-from elasticsearch_dsl import Document, Integer, Keyword, Text, Date, Index, Float, Boolean, GeoPoint, DenseVector, Q
-import dataclasses
+import meilisearch
 import datetime
 import json
 import uuid
@@ -29,186 +28,247 @@ logger = logging.getLogger(__name__)
 # This is memory and performance efficient because ESD are simply containers for json rest api calls in the es format.
 
 
-@dataclasses.dataclass
 class SwiftData:
     id: sd.string()
-    ts: sd.string()
-    # ts: sd.timestamp()
+    ts: sd.timestamp()
 
+    @classmethod
+    def _fields(cls):
+        """This method replaces dataclasses.fields to move SwiftData away from dataclasses to normal class definition"""
+        fields = dict()
+        for _super in cls.__bases__:
+            if issubclass(_super, SwiftData): fields = dict(_super._fields()) | fields
+        if "__annotations__" in cls.__dict__:
+            fields = cls.__dict__["__annotations__"] | fields
+        return fields.items()
+
+    def __init__(self, **data):
+        """This method replaces the dataclasses implicit __init__ constructor which populates each of its attributes"""
+        for key, value in data.items(): setattr(self, key, value)
+
+    @classmethod
     def __init_subclass__(cls):
-        """This method is called after any SubClass /definition/ and servers the purpose of set/get of its fields."""
+        """This method is called after any SubClass /definition/ to identify fields with defined set/get methods."""
         # NOTE: there are instances in which fields (i.e., timestamps) should have data wranglers when set or get (i.e.
         # the user may set the timestamp field with a string instead of a datetime; which is then parsed in the setter
         # of the field according to the timestamp.upon_set(value) function, if defined; similarly for getters. This lets
         # dataclass use conventional styles (strings) for storage on object by allows the user to have the full suite of
         # expectations (i.e., gps = "lat,lng" or ["lat", "lng"] or [lat, lng]) all while seamlessly connecting from the
-        # dataclass to its json to its elasticsearch document (where json has its wrangler into elasticsearch too)
-        super().__init_subclass__()
-        for field in dataclasses.fields(cls):
-            if hasattr(field.type, "upon_get") or hasattr(field.type, "upon_set"):
-                private = f"__{field.name}"
-                # cls.__annotations__[private] = str  # this backup confirms all private holdings are str
-                setattr(cls, private, dataclasses.field(init=False, repr=False))
-                if hasattr(field.type, "upon_get"):
-                    getter = property(lambda self: field.type.upon_get(getattr(cls, private)))
-                else: getter = property(lambda self: getattr(cls, private))
-                if hasattr(field.type, "upon_set"):
-                    setter = getter.setter(lambda self, value: setattr(cls, private, field.type.upon_set(value)))
-                else: setter = getter.setter(lambda self, value: setattr(cls, private, value))
-                setattr(cls, field.name, getter)
-                setattr(cls, field.name, setter)
+        # dataclass to its disk json to its storage database document (and how swiftdata handles ingestion to database).
+        # In short, this defines get/set data wranglers for any special SwiftData datatype (i.e., sd.timestamp())
+        for fieldname, fieldtype in cls._fields():
+            private = f"__{fieldname}"  # create a private storage attribute for each user defined attribute
+            setattr(cls, private, None)
+            if hasattr(fieldtype, "upon_get"):  # if no upon_get exists simply return the __variable storage value
+                def getter(_self, _private=private, _fieldtype=fieldtype): return _fieldtype.upon_get(getattr(_self, _private))
+            else:
+                def getter(_self, _private=private): return getattr(_self, _private)
+            getter.__name__ = f"getter_{cls.__name__}_{fieldname}"
+            if hasattr(fieldtype, "upon_set"):  # if no upon_set exists simply store any value directly to __variable
+                def setter(_self, _value, _private=private, _fieldtype=fieldtype):
+                    return setattr(_self, _private, _fieldtype.upon_set(_value))
+            else:
+                def setter(_self, _value, _private=private): return setattr(_self, _private, _value)
+            setter.__name__ = f"setter_{cls.__name__}_{fieldname}"
+            setattr(cls, fieldname, property(getter, setter))
 
     @classmethod
     def empty(cls):
         """Initializer that populates all fields with empty objects. Useful for updating or merging records."""
-        return cls(**{field.name: None for field in dataclasses.fields(cls)})
+        return cls(**{name: None for (name, _) in cls._fields()})
 
     @classmethod
     def new(cls, id=None, ts=None, **data):
         """Initializer that accepts missing values (set to empty); and sets .id and .ts if not provided."""
         if data is None: data = dict()
-        values = {f.name: data[f.name] if f.name in data else None for f in dataclasses.fields(cls)}
+        values = {name: (data[name] if name in data else None) for (name, _) in cls._fields()}
         if id is None and "id" not in data: values["id"] = uuid.uuid4().hex.lower()
         if id is not None: values["id"] = str(id).lower()  # if id or ts are set these values will override any in data
         if ts is None and "ts" not in data: values["ts"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if ts is not None: values["ts"] = ts
         # because constructors do not call setters unless explicit within the init we will explicitly use setters
-        for field in dataclasses.fields(cls):
-            if hasattr(field.type, "upon_set") and field.name in values:
-                values[field.name] = field.type.upon_set(values[field.name])
-                if hasattr(field.type, "upon_get") and field.name in values:
-                    values[field.name] = field.type.upon_get(values[field.name])
+        # NOTE: this is an important detail: calling __init__(**data) directly would not access wranglers: use .new()
+        for (fieldname, fieldtype) in cls._fields():
+            if hasattr(fieldtype, "upon_set") and fieldname in values:  # upon_set then upon_get allows any user input
+                values[fieldname] = fieldtype.upon_set(values[fieldname])
+                if hasattr(fieldtype, "upon_get") and fieldname in values:
+                    values[fieldname] = fieldtype.upon_get(values[fieldname])
+        # this section explicitly constructs fields which may be SwiftData objects themselves; or expected to be lists.
+        for (fieldname, fieldtype) in cls._fields():
+            if fieldname in values:
+                try: is_list, field_cls = fieldtype.__origin__ == list, fieldtype.__args__[0]  # both are equally fast
+                except AttributeError: is_list, field_cls = False, fieldtype
+                if issubclass(field_cls, SwiftData):  # map data to class explicitly
+                    if values[fieldname] is not None:
+                        if is_list: values[fieldname] = [field_cls.new(**d) for d in values[fieldname]]
+                        else: values[fieldname] = field_cls.new(**values[fieldname])
         return cls(**values)
 
     def as_dict(self):
-        return dataclasses.asdict(self)
+        """simply converts swiftdata to dict and uses any upon_disk_storage handlers if data to be saved to disk"""
+        _as_dict = {name: getattr(self, name) for (name, _) in self._fields()}
+        for (fieldname, fieldtype) in self.__class__._fields():
+            if hasattr(fieldtype, "upon_disk_storage") and fieldname in _as_dict:
+                _as_dict[fieldname] = fieldtype.upon_disk_storage(_as_dict[fieldname])
+            try: is_list, field_cls = fieldtype.__origin__ == list, fieldtype.__args__[0]
+            except AttributeError: is_list, field_cls = False, fieldtype
+            if issubclass(field_cls, SwiftData):  # map data to class explicitly
+                if is_list: _as_dict[fieldname] = [d.as_dict() for d in _as_dict[fieldname]]
+                else: _as_dict[fieldname] = _as_dict[fieldname].as_dict()
+        return _as_dict
 
-    # The methods below this line will be modified once the ElasticSearch components are handled.
+    def __repr__(self): return f"<{self.__class__.__name__} id={self.id}>"
 
-    def save(self, index, exist_ok=True, es=False):
-        if es:
-            es_client, es_cls = SwiftDataBackend.operation_context(index, self.__class__)
-            return es_cls(**SwiftDataInternal.swiftdata_obj_es_init(self)).save(using=es_client)
+    # The methods below this line are written to interact with both filesystem storage and the search database.
+
+    def save(self, silo, exist_ok=True, db=False):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, self.__class__)
+            results = db_index.add_documents([self.as_dict()], primary_key="id")
+            SwiftDataBackend.client.meilisearch_wait_for_task(db_index, results)
+            return True
         else:
-            stub = SwiftDataBackend.create_stub(self.id, self.__class__.__name__, index)
+            stub = SwiftDataBackend.create_stub(self.id, self.__class__.__name__, silo)
             if not exist_ok and FileSystem.easy_exists(stub):
                 raise RuntimeError(f"item exists in database {self}")
             as_dict = self.as_dict()
-            for field in dataclasses.fields(self.__class__):
-                if hasattr(field.type, "upon_disk_storage") and field.name in as_dict:
-                    as_dict[field.name] = field.type.upon_disk_storage(as_dict[field.name])
             FileSystem.easy_upload(io.StringIO(json.dumps(as_dict)), stub)
-        return "created"  # follows the ElasticSearch response convention.
+        return True
 
     @classmethod
-    def delete(cls, index, id, es=False):
-        if es:
-            es_client, es_cls = SwiftDataBackend.operation_context(index, cls)
-            return cls.get(index, id, es=True).delete(using=es_client)  # there is some strange oddity here
-            # return es_cls(**SwiftDataInternal.swiftdata_obj_es_init(cls.new(id=id))).delete(using=es_client)
+    def saveAll(cls, silo, swift_objs, exist_ok=True, db=False):
+        if db:
+            logger.warning(".saveAll() does not protect against exist_ok=False.")
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
+            results = db_index.add_documents([obj.as_dict() for obj in swift_objs], primary_key="id")
+            SwiftDataBackend.client.meilisearch_wait_for_task(db_index, results)
+            return True
         else:
-            stub = SwiftDataBackend.create_stub(id, cls.__name__, index)
+            [obj.save(silo, exist_ok=exist_ok, db=False) for obj in swift_objs]
+
+    @classmethod
+    def delete(cls, silo, id, db=False):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
+            results = db_index.delete_document(id, primary_key="id")
+            SwiftDataBackend.client.meilisearch_wait_for_task(db_index, results)
+            return True
+        else:
+            stub = SwiftDataBackend.create_stub(id, cls.__name__, silo)
             return FileSystem.easy_delete(stub)
 
     @classmethod
-    def get(cls, index, id, es=False):
-        if es:
-            es_client, es_cls = SwiftDataBackend.operation_context(index, cls)
+    def get(cls, silo, id, db=False):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
             if isinstance(id, (tuple, list)):
-                return es_cls.mget(id=id, using=es_client)
-            else: return es_cls.get(id=id, using=es_client)
+                results = MeilisearchQueryHelper.meilisearch_mget_documents(db_index, id)
+                items = [cls.new(**r) for r in results["hits"]]
+                items = {_id: None for _id in id} | {item.id: item for item in items}  # returns dict=None for not exist
+                return [items[_id] for _id in id]  # as list
+            else:
+                results = db_index.get_document(id)
+                return cls.new(**vars(results))
         else:
             if not isinstance(id, (tuple, list)): id = [id]
             objects = []
             for _id in id:
-                if not cls.exists(index, _id): result = None
+                if not cls.exists(silo, _id): result = None
                 else:
-                    stub = SwiftDataBackend.create_stub(id, cls.__name__, index)
+                    stub = SwiftDataBackend.create_stub(id, cls.__name__, silo)
                     file_obj = FileSystem.easy_download(stub)
                     result = cls.new(json.load(file_obj))
                 objects.append(result)
             return objects
 
     @classmethod
-    def getAll(cls, index, es=False, max_results=50):
-        if es:
-            es_client, es_cls = SwiftDataBackend.operation_context(index, cls)
-            es_objs = ElasticSearchDslClient.getAll(es_client, es_cls, max_results=max_results)
-            return [cls(**SwiftDataInternal.es_obj_swiftdata_init(obj)) for obj in es_objs]
+    def getAll(cls, silo, db=False, limit=50):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
+            results = MeilisearchQueryHelper.meilisearch_getall_documents(db_index, limit=limit)
+            return  [cls.new(**vars(r)) for r in results.results]
         else:
             objs = []
-            for id in cls.list(index)[:max_results]:
-                stub = SwiftDataBackend.create_stub(id, cls.__name__, index)
+            for id in cls.list(silo)[:limit]:
+                stub = SwiftDataBackend.create_stub(id, cls.__name__, silo)
                 file_obj = FileSystem.easy_download(stub)
                 objs.append(cls.new(**json.load(file_obj)))
             return objs
 
     @classmethod
-    def exists(cls, index, id, es=False):
-        if es:
-            es_client, es_cls = SwiftDataBackend.operation_context(index, cls)
-            return es_cls.exists(id=id, using=es_client)
+    def exists(cls, silo, id, db=False):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
+            try:
+                db_index.get_document(id)
+                return True
+            except meilisearch.errors.MeilisearchApiError as e:
+                if e.status_code == 404: return False
+                else: raise
         else:
-            stub = SwiftDataBackend.create_stub(id, cls.__name__, index)
+            stub = SwiftDataBackend.create_stub(id, cls.__name__, silo)
             return FileSystem.easy_exists(stub)
 
     @classmethod
-    def list(cls, index, es=False):
-        if es:
-            es_client, es_cls, es_index = SwiftDataBackend.operation_context(index, cls, with_index=True)
-            return ElasticSearchDslClient.listAll(es_client, es_index._name, es_cls)
+    def list(cls, silo, db=False):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
+            return MeilisearchQueryHelper.meilisearch_list_documents(db_index)
         else:
-            directory = SwiftDataBackend.create_stub(None, cls.__name__, index)
+            directory = SwiftDataBackend.create_stub(None, cls.__name__, silo)
             filenames = FileSystem.easy_listdir(directory)
-            pattern = re.compile(f"swift.{index}.{cls.__name__}.(.*?).json".lower())
+            pattern = re.compile(f"swift.{silo}.{cls.__name__}.(.*?).json".lower())
             return [pattern.match(filename).group(1) for filename in filenames if pattern.match(filename)]
 
-    @classmethod
-    def refresh_index(cls, index, es=False):
-        if es:
-            es_client, es_cls, es_index = SwiftDataBackend.operation_context(index, cls, with_index=True)
-            es_client.indices.refresh(index=es_index._name)
 
     @classmethod
-    def count(cls, index, es=False):
-        if es:
-            _, es_cls, es_index = SwiftDataBackend.operation_context(index, cls, with_index=True)
-            return SwiftDataBackend.client.count(es_index._name)
+    def count(cls, silo, db=False):
+        if db:
+            _, db_index = SwiftDataBackend.operation_context(silo, cls)
+            return db_index.get_stats().number_of_documents
         else:
-            return len(cls.list(index))
+            return len(cls.list(silo))
 
     @classmethod
-    def create_index(cls, index, exist_ok=False):
-        """makes explicit for the user the creation of the elastic search document index for the first time"""
-        es_client, es_cls, es_index = SwiftDataBackend.operation_context(index, cls, with_index=True)
-        if not SwiftDataBackend.client.index_exists(es_index._name):
-            logger.info(f"creating index {es_index._name} for {es_cls.__name__} for its first use")
-            es_index.create(using=SwiftDataBackend.client.es)
+    def create_index(cls, silo, exist_ok=False):
+        """makes explicit for the user the creation of the search index for the first time"""
+        db_client, db_index = SwiftDataBackend.operation_context(silo, cls)
+        if not SwiftDataBackend.client.index_exists(db_index.uid):
+            logger.info(f"creating index {db_index.uid} for {cls.__name__} for its first use")
+            db_client.create_index(db_index.uid, dict(primaryKey="id"))  # create, and filterable.
+            db_client.index(db_index.uid).update_filterable_attributes([fieldname for fieldname, _ in cls._fields()])
         else:
             if exist_ok: return
-            raise RuntimeError(f"index {es_index._name} for {es_cls.__name__} already exists")
+            raise RuntimeError(f"index {db_index.uid} for {cls.__name__} already exists")
 
     @classmethod
-    def expert_query(cls, index, q, max_results=50):
-        """performs a search using any elasticsearch-dsl Q query construction"""
-        es_client, es_cls = SwiftDataBackend.operation_context(index, cls)
-        es_objs = ElasticSearchDslClient.perform_dsl_query(es_client, es_cls, q, max_results=max_results)
-        return [cls(**SwiftDataInternal.es_obj_swiftdata_init(obj)) for obj in es_objs]
+    def delete_index(cls, silo):
+        _, db_index = SwiftDataBackend.operation_context(silo, cls)
+        if SwiftDataBackend.client.index_exists(db_index.uid):
+            results = SwiftDataBackend.client.client.delete_index(db_index.uid)
+            SwiftDataBackend.client.meilisearch_wait_for_task(db_index, results)
 
     @classmethod
-    def search_bar(cls, index, s, max_results=50):
+    def search(cls, silo, search="", opt_params=None, limit=50):
+        """performs a search using meilisearch search construction"""
+        _, db_index = SwiftDataBackend.operation_context(silo, cls)
+        if opt_params is None: opt_params = dict()
+        if limit is not None: opt_params = opt_params | dict(limit=limit)
+        results = db_index.search(search, opt_params)
+        return [cls.new(**r) for r in results["hits"]]
+
+    @classmethod
+    def search_bar(cls, silo, s, limit=50, only_fields=None, exclude_fields=None):
         """performs a search bar like query on a string with field prompts, i.e., "cast: david year: 1980" """
-        return cls.expert_query(index, ElasticSearchDslClient.search_bar(s), max_results=max_results)
-
-    @classmethod
-    def search_any(cls, index, s, fields=None, max_results=50):
-        """performs a search such that s may be in any of fields; or all text fields if not set by user."""
-        # NOTE: OR is spelled should; AND is spelled must; NOR is spelled must_not; ignore score must is filter
-        # NOTE: https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-bool-query.html
-        # NOTE: https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-multi-match-query.html
-        if fields is None: fields = [f.name for f in dataclasses.fields(cls) if f.type.__name__.split("_")[0] == "TEXT" and f.name not in ["id", "ts"]]
-        q = Q('multi_match', **dict(query=s, fields=fields))
-        return cls.expert_query(index, q, max_results=max_results)
+        components = SearchQueryHelper.search_bar(s)
+        fieldnames = [fieldname for fieldname, fieldtype in cls._fields()]
+        keep = [c["field"] in fieldnames or c["field"] is None for c in components]
+        misconfigured = [c for i, c in enumerate(components) if not keep[i]]
+        components = [c for i, c in enumerate(components) if keep[i]]
+        if len(misconfigured) != 0: logger.warning(f"fields misspelled or non-existent: fields={misconfigured}")
+        search, opt_params = MeilisearchQueryHelper.meilisearch_construct_complex_query_from_search_bar(components, only_fields=only_fields, exclude_fields=exclude_fields)
+        if limit is not None: opt_params = opt_params | dict(limit=limit)
+        return cls.search(silo, search, opt_params)
 
     @staticmethod
     def help():
@@ -223,119 +283,55 @@ class SwiftData:
             logging.info(f"{name:>15s}: {description}")
 
 
-class SwiftDataBackend(object):
+class SwiftDataBackend:
 
-    server = None
-    client = None
+    server = None  # global server
+    client = None  # global client
     swiftdata_base_directory = "file://" + os.path.join(RuntimeConfig.directory_base_local, "_subsystem/swiftdata/")
 
-    def start(self, password, exist_ok=False, rebuild=False):
+    def __init__(self, database_hostport, database_password):
+        self.database_hostport = database_hostport  # create client here; but also wait for active server?
+        self.database_password = database_password  # always require hostport? otherwise looks good?
+
+        # self.start_server(exist_ok=True)  # disabled temporarily
+        SwiftDataBackend.server = True  # instead of MeilisearchServer variable, while disabled
+        SwiftDataBackend.client = MeilisearchClient(hostport=database_hostport, passkey=database_password)
+        SwiftDataBackend.client.wait_for_active_server()
+
+    def start_server(self, exist_ok=False):
         if not exist_ok and (SwiftDataBackend.server is not None or SwiftDataBackend.client is not None):
             raise RuntimeError("SwiftDataBackend has previously been started and is not intended for parallelization.")
-        if rebuild: ElasticSearchServer.force_delete()
-        SwiftDataBackend.server = ElasticSearchServer(password=password, exist_ok=exist_ok, run_ok=exist_ok)
-        SwiftDataBackend.client = ElasticSearchClient(password=password)
-        SwiftDataBackend.client.wait_for_active()
+        SwiftDataBackend.server = MeilisearchServer(
+            hostport=self.database_hostport, passkey=self.database_password, exist_ok=exist_ok)
         return self
 
-    def stop(self, not_exist_ok=False): ElasticSearchServer.stop(not_exist_ok=not_exist_ok)
-
-    def snapshot_save(self, applet):
-        self.__throwing_integrity_check()
-        directory = os.path.join(SwiftDataBackend.swiftdata_base_directory, "_snapshots/elasticsearch/_applet", applet)[len("file://"):]
-        self.client.snapshot_directory_set(directory, applet)
-        return self.client.snapshot_save(applet)
-
-    def snapshot_load(self, applet, save_name):
-        self.__throwing_integrity_check()
-        directory = os.path.join(SwiftDataBackend.swiftdata_base_directory, "_snapshots/elasticsearch/_applet", applet)[len("file://"):]
-        self.client.snapshot_directory_set(directory, applet)
-        return self.client.snapshot_load(applet, save_name)
-
-    def snapshot_latest(self, applet):
-        self.__throwing_integrity_check()
-        directory = os.path.join(SwiftDataBackend.swiftdata_base_directory, "_snapshots/elasticsearch/_applet", applet)[len("file://"):]
-        self.client.snapshot_directory_set(directory, applet)
-        return self.client.snapshot_latest(applet)
-
-    def snapshot_list(self, applet, n_most_recent=10):
-        self.__throwing_integrity_check()
-        directory = os.path.join(SwiftDataBackend.swiftdata_base_directory, "_snapshots/elasticsearch/_applet", applet)[len("file://"):]
-        self.client.snapshot_directory_set(directory, applet)
-        return self.client.snapshot_list(applet, n_most_recent=n_most_recent)
+    def stop_server(self):
+        if self.server is None: logger.error("SwiftDataBackend server has not been created. did you not run .start()")
+        self.server.stop()
 
     @staticmethod
-    def operation_context(index, cls, with_index=False):
-        """Convenience function ensures backend is running, creates es_cls, and ensures readiness for data operations"""
+    def operation_context(silo, swift_cls):
+        """Convenience function ensures backend is running, creates silo cls index if necessary, and data operations"""
         SwiftDataBackend.__throwing_integrity_check()
-        # builds the elastic search document object and index, or from cache, from the swiftdata object
-        es_cls, es_index = SwiftDataInternal.build_es_class_from_swift_class(cls, index)
-        return (SwiftDataBackend.client.es, es_cls, es_index) if with_index else (SwiftDataBackend.client.es, es_cls)
+        # builds the database search index, or from cache, from the swiftdata object
+        index_name = f"{silo}___{swift_cls.__name__}".lower()
+        return SwiftDataBackend.client.client, SwiftDataBackend.client.client.index(index_name)
 
     @staticmethod
-    def create_stub(id, cls_name, index, tags=None):
-        """Builds /{index}/{tag1}/{value1}/{tag2}/{value2}/swift.{cls_name}/ and swift.{index}.{cls_name}.{id}.json"""
+    def create_stub(id, cls_name, silo, tags=None):
+        """Builds /{index}/{tag1}/{value1}/{tag2}/{value2}/swift.{cls_name}/ and swift.{silo}.{cls_name}.{id}.json"""
         if tags is None: tags = dict()
         directory = create_programmatic_directory(SwiftDataBackend.swiftdata_base_directory, tags)
-        directory = os.path.join(directory, "_index", index, f"swift.{cls_name}/")
+        directory = os.path.join(directory, "_silo", silo, f"swift.{cls_name}/")
         if id is None: return directory.lower()
-        return os.path.join(directory, SwiftDataBackend.__stub_basename(index, cls_name, id)).lower()
+        return os.path.join(directory, SwiftDataBackend.__stub_basename(silo, cls_name, id)).lower()
 
     @staticmethod
-    def __stub_basename(index, cls_name, id): return f"swift.{index}.{cls_name}.{id}.json".lower()
+    def __stub_basename(silo, cls_name, id): return f"swift.{silo}.{cls_name}.{id}.json".lower()
 
     @staticmethod
     def __throwing_integrity_check():
         if SwiftDataBackend.server is None:
-            raise RuntimeError("SwiftDataBackend is not running and must be started before using its ElasticSearch.")
+            raise RuntimeError("SwiftDataBackend is not running and must be started before using its search database.")
         if SwiftDataBackend.client is None:
             raise RuntimeError("SwiftDataBackend has been deleted and this should not happen.")
-
-
-########################################################################################################################
-# internal use code only
-########################################################################################################################
-
-
-class SwiftDataInternal(object):
-
-    already_built = dict()  # map from SD base_cls => (ESD, ESD Index)  objects already built.
-    fieldmap = {cls.__name__: cls for cls in [Keyword, Text, Integer, Float, Date, Boolean, DenseVector, GeoPoint]}
-
-    @staticmethod
-    def build_es_class_from_swift_class(swift_cls, prefix=None):
-        """Builds ElasticSearchDocument equivalents of SwiftData; can be dependent on previously built classes"""
-        # NOTE: applet is a prefix to ensure that ESD are not transferable across projects in the same ES Service.
-        prefix = "" if prefix is None else f"{prefix}."
-        es_cls_name = f"{prefix}{swift_cls.__name__}.ElasticSearchDocument"
-        if es_cls_name in SwiftDataInternal.already_built: return SwiftDataInternal.already_built[es_cls_name]
-
-        es_cls = type(es_cls_name, (Document,), dict())  # Build the base ESD with no attributes.
-        for field in dataclasses.fields(swift_cls):
-            if hasattr(field.type, "__es_field_cls_name"):  # expect every non-SwiftData build basic field to have these
-                es_field_cls_name = getattr(field.type, "__es_field_cls_name")
-                es_parameters = getattr(field.type, "__es_parameters")  # expect every SwiftData class to have these
-            else:  # using a derived class
-                try: es_parameters, es_field_cls_name = field.type.__origin__ == dict(multi=True), field.type.__args__[0].__name__
-                except AttributeError: es_parameters, es_field_cls_name = dict(multi=False), field.type.__name__
-            if es_field_cls_name in SwiftDataInternal.fieldmap:
-                es_field = SwiftDataInternal.fieldmap[es_field_cls_name](**es_parameters)
-            elif es_field_cls_name in SwiftDataInternal.already_built:
-                # if specified as list[EXISTING] need to do the split here; base_cls=EXISTING
-                es_field = SwiftDataInternal.already_built[es_field_cls_name](**es_parameters)
-            else: raise KeyError(f"SwiftData {swift_cls.__name__} has unsupported field {field.name}={field.type}")
-            setattr(es_cls, field.name, es_field)  # add to the base ESD
-
-        # create Index for each
-        es_index = Index(f"index.{es_cls.__name__}".lower())
-        es_index.document(es_cls)
-        SwiftDataInternal.already_built[es_cls_name] = [es_cls, es_index]
-        return SwiftDataInternal.already_built[es_cls_name]
-
-    @staticmethod
-    def swiftdata_obj_es_init(swift_obj): return vars(swift_obj) | dict(meta=dict(id=swift_obj.id))
-
-    @staticmethod
-    def es_obj_swiftdata_init(es_obj):
-        """Performs the same as Document.to_dict() which is broken for now because of the dynamic ES creation."""
-        return es_obj.to_dict()

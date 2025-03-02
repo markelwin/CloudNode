@@ -1,18 +1,14 @@
+import time
+
 from cloudnode import SwiftData, SwiftDataBackend, sd, RuntimeConfig
-import dataclasses
+import os
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# This demo creates a simple storage utility for scraping websites and constructing a search index to retrieve those.
-# this demo requires installing beautifulsoup: pip install BeautifulSoup4   # parses html into searchable elements
-# this demo requires installing selenium: pip install selenium              # operates a browser to interact with js
-# this demo requires docker to be installed and running on your os: https://docs.docker.com/engine/install/
-# This demo and its apis are expected to change: future updates will also use cloudnode app infrastructure additionally.
-
-applet = "early"  # the name of the applet itself
-index = "demo"    # an index is a silo'd search repository; i.e., WebPage index=demo and index=prod are different dbs
+# This demo creates a simple book search engine.
+silo = "demo"    # a silo of indices in the search repository; i.e., Book index=demo and index=prod are different dbs
 
 # Here we define the database class itself; this demo includes unnecessary fields to educate the developer here.
 # We then list the set of urls we will load into the database and use a combination of Selenium and BeautifulSoup to
@@ -24,7 +20,7 @@ index = "demo"    # an index is a silo'd search repository; i.e., WebPage index=
 # makes use of the flexibility of our SwiftData: first, the demo simply downloads the html, creates a WebPage object
 # and then takes advantage of our SwiftData flexibility to simply write these objects to disk. From that point on we
 # have the files downloaded and can cut out the slow downloading steps without ever needing to boot up a search engine.
-# Users interact with these filesystem version exactly the same as the search api calls by setting the es=False flag in
+# Users interact with these filesystem version exactly the same as the search api calls by setting the db=False flag in
 # each call; and future updates will allow approximate per-field search capabilities into those data files, so that data
 # management can happen on disk or in search nearly identically (the only different will be improved search capabilities
 # using the full algorithm capabilities of search engine analyzers). This capabilities does not exist with other search.
@@ -42,114 +38,79 @@ SwiftData.help()
 # five minute demo: defining problem statements and using local filestorage
 ########################################################################################################################
 
+class Book(SwiftData):
+    title: sd.string(analyze=True)     # a string of text; tokenized, and analyzed for varied searchable
+    authors: sd.string(list=True)      # a list of exact strings; facilitating exact matches only
+    isbn: sd.string()                  # an exact string; facilitating exact matches only
+    year: sd.integer()                 # an integer; searchable by range and equality
+    subtitle: sd.string(analyze=True)  # a string of text; tokenized, and analyzed for varied searchable
+    # now: sd.timestamp()               # a timestamp; searchable using windows of time
+    # geo: sd.geopoint(list=True)       # a list of gps defined spots; searchable via radius
 
-@dataclasses.dataclass
-class WebPage(SwiftData):
-    url: sd.string()                  # an exact string; facilitating exact matches only
-    domain: sd.string()
-    text: sd.string(analyze=True)     # a body of text; tokenized, analyzed and searchable
-    html: sd.string(dont_index=True)  # a string stored in the engine but not intended for search
-    labels: sd.string(list=True)      # a list of exact strings; matching one or all is possible
-    now: sd.timestamp()               # a timestamp; searchable using windows of time
-    geo: sd.geopoint(list=True)       # a list of gps defined spots; searchable via radius
+data = [
+["Courtiers",	        "Valentine Low",    "978-1-250-28256-9",        "2022",     "Intrigue, Ambition, And The Power Players Behind The House Of Windsor"],
+["Genius Makers",	    "Cade Metz",        "978-1-524-74267-6",        "2021",     "The Mavericks Who Brought AI To Google, Facebook, And The World"],
+["Equilibrium Statistical Physics",	"Michael Plischke & Birger Bergersen", "981-0-21642-4", "1994", ""],
+["The Four",	        "Scott Galloway",   "978-0-735-213678",         "2018",     "The Hidden DNA Of Amazon, Apple, Facebook, And Google"],
+["On Call",	            "Anthony Fauci",    "978-0-593-65747-8",        "2024",     "A Doctor's Journey In Public Service"],
+["Memoir!",	            "Sid Meier",        "978-1-324-00587-2",        "2020",     "A Life In Computer Games"],
+["Reality Is Broken",	"Jane McGonigal",   "978-0-143-12061-2",        "2011",     "Why Games Make Us Better And How They Can Change The World"],
+["What to Eat When You're Pregnant",    "Nicole Avena", "978-1-607-74679-9", "2015", "A Week-By-Week Guide To Support Your Health And Your Baby's Development"],
+["Chaos Monkeys",	    "Antonio Garcia Martinez",  "978-1-785-03646-0","2017",     "Mayhem And Mania Inside The Silicon Valley Money Machine"],
+["Flight of the WASP",	"Michael Gross",    "978-0-8021-6186-4",        "2023",     "The Rise, Fall, And Future Of America's Original Ruling Class"]]
 
-
-pages = [
-    "https://www.nytimes.com/2024/09/19/nyregion/cuomo-nursing-homes-covid.html",
-    "https://www.nytimes.com/2024/09/19/nyregion/los-angeles-earthquakes-attitudes.html",
-    "https://www.nytimes.com/2024/09/19/climate/us-methane-greenhouse-gas.html",
-    "https://www.nytimes.com/2024/09/19/style/london-fashion-week-outfits-fashion.html",
-    "https://cooking.nytimes.com/recipes/1017937-mississippi-roast",
-    "https://astrorobotic.medium.com/seriously-basket-of-deplorables-09f346d78f08",
-    "https://astrorobotic.medium.com/please-explain-to-me-for-my-kids-ca6f3ad1e81e",
-]
-
-
-from bs4 import BeautifulSoup
-from selenium import webdriver
-import urllib.parse
-import datetime
-import base64
-import random
-
-options = webdriver.firefox.options.Options()
-options.add_argument("--headless")
-with webdriver.Firefox(options=options) as browser:
-    for url in pages:
-        id = base64.b64encode(url.encode()).decode()  # create an object-unique, reversible id
-        if WebPage.exists(index, id): continue        # check whether object exists in filesystem
-
-        browser.get(url)  # download for the html and text fields.
-        html = browser.page_source
-        soup = BeautifulSoup(html, 'html.parser')
-        text = "\n".join([s for p in BeautifulSoup(html, 'html.parser').findAll("p") for s in p.stripped_strings])
-
-        parsed = urllib.parse.urlparse(url)
-        domain = ".".join(parsed.hostname.split(".")[-2:])  # construct the domain field; i.e., nytimes.com
-
-        labels = random.choices(["entertainment", "politics", "sports", "news"], k=3)  # generate labels as example
-        gps = random.choice([[-42.5188, 172.5718], "38.8974, -77.0365", ["34.034", "-118.6792"]])  # random geo
-        ts = random.choice(["Sat Nov 5, 1955 2:15AM", datetime.datetime.now(), "1955-08-01 08:00:00.000"])  # random ts
-
-        WebPage.new(id=id, url=url, domain=domain, html=html, text=text, labels=labels, geo=gps, now=ts).save(index)
+for (title, authors, isbn, year, subtitle) in data:
+    # we will use the isbn as the id field; and split authors into a list.
+    id = isbn
+    authors = authors.split(" & ") if "&" in authors else [authors]
+    if Book.exists(silo, id): continue  # check whether object exists in filesystem
+    Book.new(id=id, title=title, authors=authors, isbn=isbn, year=year, subtitle=subtitle).save(silo)  # save to disk
 
 # retrieve all from the filesystem; .get(id) .count() .list()
-# retrieve all; delete one from filesystem, check count, resave the item.
-items = WebPage.getAll(index)
-page = items[0]
-print(page.url)
-WebPage.delete(index, page.id)
-print(WebPage.get(index, page.id), WebPage.count(index), WebPage.list(index))
-page.save(index)
-print(WebPage.count(index), WebPage.list(index))
-exit()  # the sections below interact with a dockerized elasticsearch backend using SwiftDataBackend.
+# retrieve all; delete one from filesystem, check count, resave the item; check again
+books = Book.getAll(silo)
+book = books[0]
+print(book.isbn)
+Book.delete(silo, book.id)
+print(Book.get(silo, book.id), Book.count(silo), Book.list(silo))
+book.save(silo)
+print(Book.count(silo), Book.list(silo))
+# exit()  # the sections below interact with a meilisearch running as backend for SwiftDataBackend.
 
 ########################################################################################################################
 # five minute demo: using the database
 ########################################################################################################################
 
-# SwiftData utilizes the open source ElasticSearch search engine package to create a multi-index search engine server,
-# which can exactly model the same SwiftData, and expand to familiar search engine concepts such as analysis and logic.
-# The cloudnode package uses docker to containerize all apps and services, and uses passwords as SSL is unnecessary for
-# requests made to and from the localhost. For SwiftData, all client management happens entirely in the background, and
-# all database management and indexing happens in the background with the same apis as local storage by setting es=True.
-# The ElasticSearch data persists across service start/stops; but requires 'snapshots' to be created which equivalent to
-# backups of local filestorage. The database also requires refreshing an index after new data is added to query for it.
+# SwiftData utilizes on-premise self-hosting Meilisearch search engine to create a multi-application search server for
+# your cloudnode applications, using the exact same SwiftData data models whether you save-to-disk or use Meilisearch.
+# To install Meilisearch follow the directions on its installation page and set a passkey at MEILISEARCH_SERVER_PASSKEY.
+# SwiftData creates a global backend client which is accessed automatically whenever SwiftData objects are with db=True.
+# If a Meilisearch server is already running somewhere else all that needs to be done is point SwiftDataBackend to it.
+# Note: For the time being we are disabling the server_start from within cloudnode; start the server externally instead.
+database_passkey = os.environ['MEILISEARCH_SERVER_PASSKEY']
+database_hostport = "http://meilisearch.jarvis.home"  # its default unless set
+swift = SwiftDataBackend(database_hostport, database_passkey)
+# swift = SwiftDataBackend(database_hostport, database_passkey).start_server(exist_ok=True)  # disabled temporarily
 
-database_password = "password"
-swift = SwiftDataBackend().start(database_password, exist_ok=True, rebuild=True)
-WebPage.create_index(index, exist_ok=True)
+Book.delete_index(silo)
+Book.create_index(silo, exist_ok=True)
+print([Book.exists(silo, book.id, db=True) for book in books])
+# for book in books:  # if the items are not already in the database; add then the same was as saving to file system
+#     if not Book.exists(silo, book.id, db=True): book.save(silo, db=True)
+Book.saveAll(silo, [book for book in books if not Book.exists(silo, book.id, db=True)], db=True)  # or, in parallel
 
-for item in items:  # if the items are not already in the database; add then the same was as saving to file system
-    if not WebPage.exists(index, item.id, es=True):
-        item.save(index, es=True)
-WebPage.refresh_index(index, es=True)
+db_items = Book.getAll(silo, db=True)  # demonstrate retrieval of all the objects same as pulling file system
+assert sorted(Book.list(silo, db=True)) == sorted(Book.list(silo, db=False))  # objects are the same, e.g. ids
 
-items_es = WebPage.getAll(index, es=True)  # demonstrate retrieval of all the objects same as pulling file system
-assert sorted(WebPage.list(index, es=True)) == sorted(WebPage.list(index, es=False))  # objects are the same, e.g. ids
-
-results = WebPage.search_bar(index, "domain:nytimes.com text:covid")
-# results = WebPage.search_bar(index, "labels:politics")
-# results = WebPage.search_any(index, "politics")
-# results = WebPage.search_any(index, "David")
-
-# snapshots are created as temporal back-ups, i.e., before or after large data migrations; or, to create persistence
-# of data after the deletion of its docker container; simply stopping and restarting the docker container will continue
-# to persist data, and deletion of the docker container will remove all its contents, except snapshots, which are
-# stored in a local filesystem directory, and can be reloaded at any time from any existing snapshot.
-swift.snapshot_save(applet)
-swift.stop(not_exist_ok=False)
-swift.start(database_password, exist_ok=True, rebuild=False)
-print(swift.snapshot_list(applet))
+results = Book.search_bar(silo, 'Games')
+results = Book.search_bar(silo, 'subtitle: Games')
+results = Book.search_bar(silo, 'subtitle: Games authors: "Jane McGonigal"')
+results = Book.search_bar(silo, 'subtitle: Games autohrs: "Jane McGonigal"')  # misspelled excluded; creates warning
+results = Book.search_bar(silo, "~subtitle: Facebook Google")
 
 
-# Known issues and improvements. 9/23/24.
-# 1. data conversion is not quite right still, and some results are returned as strings
-# 2. a bug persists in the docker sdk (owned by docker) for mounting disks
-# 3. elasticsearch-dsl requires data get to delete (double pass data)
-# 4. field selection is not yet provided (i.e., get returns all fields)
-# 5. passwords require breaking down entire container (not communicated to user)
-# 6. SQL to elasticsearch-dsl translation not yet enabled.
-# 7. FLAGS field not yet implemented; geopoint only searchable withing dsl-q.
-# 8. ElasticSearch api calls should be hidden from user unless operating in DEBUG.
-# 9. a weird dataclasses quirk requires SwiftData.ts to be string instead of sd.timestamp()
+# Known issues and improvements. 3/1/25.
+# 1. FLAGS field not yet implemented; geopoint, vector search support incomplete.
+# 2. documentation, and others.
+# 3. search via filesystem not implemented yet
+# 4. search via search_bar only handles string fields; no direct access to db_client yet provided purposefully

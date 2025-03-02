@@ -1,5 +1,5 @@
 .idea/
-cloudnode/_db/_gitignore/
+cloudnode/_db/_gitignore/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

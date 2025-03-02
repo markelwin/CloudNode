@@ -44,7 +44,7 @@ class AetherClient(object):
                 logger.exception(msg)
                 r.error = msg
                 return r
-            uid, pid, tid, data = AetherClient.unwrap_from_cloudnode_kwargs(r.data)
+            _, uid, pid, tid, data = AetherClient.unwrap_from_cloudnode_kwargs(r.data)
             r.data = GenericCloudClient._marshal_response_text_into_object(data, rtype)
             return r
         else: return GenericCloudClient.request(endpoint, d=d, rtype=rtype, method=method)
@@ -55,9 +55,9 @@ class AetherClient(object):
         function_name, server_name = ae_name.split(":") if ":" in ae_name else (ae_name, None)
         endpoint = BuildServletConfig.get_endpoint(function_name, servlet_name=server_name)
         tid = uuid.uuid4().hex.lower()[:6]
-        pid = "__PID_"  # FIXME
-        uid = "__UID_"  # FIXME
-        packaged = {"__ae": dict(uid=uid, pid=pid, tid=tid), "d": data}
+        fid = None      # FIXME: This needs to be aware that the user is inside a cloudnode function
+        uid = "__UID_"  # FIXME: this needs to be aware that of the user of the client request
+        packaged = {"__ae": dict(uid=uid, fid=fid, tid=tid), "d": data}
         logger.info(f"cloudnode aether={endpoint} tid={tid} mapped to {endpoint}")
         return endpoint, packaged, "POST"  # FIX ME, I want this and ReturnType from methods
 
@@ -68,19 +68,23 @@ class AetherClient(object):
 
     @staticmethod
     def unwrap_from_cloudnode_kwargs(kwargs):
-        uid, pid, tid = kwargs["__ae"]["uid"], kwargs["__ae"]["pid"], kwargs["__ae"]["tid"]
-        data = kwargs["d"]
+        is_ae = AetherClient.is_ae_data(kwargs)
+        if is_ae:
+            uid, fid, tid = kwargs["__ae"]["uid"], kwargs["__ae"]["fid"], kwargs["__ae"]["tid"]
+            data = kwargs["d"]
+        else: uid, fid, tid, data = None, None, None, kwargs
         logger.info(f"CloudNode request tid={tid} unpacked.")
-        return uid, pid, tid, data
+        return is_ae, uid, fid, tid, data
 
     @staticmethod
-    def wrap_to_cloudnode_response(uid, pid, tid, response):
-        packaged = {"__ae": dict(uid=uid, pid=pid, tid=tid), "d": response.get_data(as_text=True)}
+    def wrap_to_cloudnode_response(is_ae, uid, fid, tid, response):
+        if not is_ae: return response
+        packaged = {"__ae": dict(uid=uid, fid=fid, tid=tid), "d": response.get_data(as_text=True)}
         return Response(response=json.dumps(packaged), status=response.status)
 
     @staticmethod
     def unwrap_from_cloudnode_response(response):
         rdata = response.data
-        uid, pid, tid, data = rdata["__ae"]["uid"], rdata["__ae"]["pid"], rdata["__ae"]["tid"], rdata["d"]
+        uid, fid, tid, data = rdata["__ae"]["uid"], rdata["__ae"]["fid"], rdata["__ae"]["tid"], rdata["d"]
         logger.info(f"CloudNode response tid={tid} unpacked.")
-        return uid, pid, tid, data
+        return uid, fid, tid, data
