@@ -1,5 +1,3 @@
-import time
-
 from cloudnode import SwiftData, SwiftDataBackend, sd, RuntimeConfig
 import os
 

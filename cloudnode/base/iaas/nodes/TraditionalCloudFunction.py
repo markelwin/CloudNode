@@ -2,7 +2,6 @@ from cloudnode.base.iaas.for_functions import parse_function_config_into_source
 from cloudnode.base.iaas.NodeLogger import NodeLogger
 from cloudnode.base.iaas.aether import AetherClient
 from cloudnode.base.core.lightweight_utilities.dicts import dictionary_parser
-from cloudnode.base.core.lightweight_utilities.wrangler import dictionary_wrangler
 from cloudnode.base.core.lightweight_utilities.sysops import dynamic_variable_loader
 from http import HTTPStatus
 import datetime
@@ -139,7 +138,7 @@ class TraditionalCloudFunction:
                     is_ae = AetherClient.is_ae_data(kwargs)
                     if is_ae: uid, pid, tid, kwargs = AetherClient.unwrap_from_cloudnode_kwargs(kwargs)
                     r = available_meta_operations_and_python_function(kwargs)
-                    if is_ae: r = AetherClient.wrap_to_cloudnode_response(uid, pid, tid, r)
+                    if is_ae: r = AetherClient.wrap_to_cloudnode_response(is_ae, uid, pid, tid, r)
                     p.add(dict(bytes=r.content_length))
                     return r
         return server_entrypoint_suitable_for_profiling_and_logging

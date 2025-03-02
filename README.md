@@ -17,8 +17,8 @@ and empower rapid **expand core services** and **prototyping of features**:
 pip install cloudnode
 ```
 
-[Docker](https://docs.docker.com/engine/install/) is required to host applications including search. 
-[Meilisearch](https://github.com/meilisearch/meilisearch) is required to server search applications. 
+- [ ] [Docker](https://docs.docker.com/engine/install/) is required to host applications including search. 
+- [ ] [Meilisearch](https://github.com/meilisearch/meilisearch) is required to server search applications. 
 
 ## Core Components
 
@@ -30,9 +30,7 @@ fields for working with complex datatypes such as process flags, deep learning e
 
 ```python
 from cloudnode import SwiftData
-import dataclasses
 
-@dataclasses.dataclass
 class Meme(SwiftData):
     url_image: str
     url_knowyour: str
